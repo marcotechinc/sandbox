@@ -1,0 +1,8 @@
+{
+  "name": "streams-worker",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.19.2",
+    "ioredis": "^5.4.1"
+  }
+}
