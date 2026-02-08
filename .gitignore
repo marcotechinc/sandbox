@@ -1,0 +1,12 @@
+# Python stuff - ignore these
+__pycache__/
+.venv/
+.env
+mlruns/
+*.db
+
+# Node.js stuff - ignore these
+node_modules/
+
+# Do NOT ignore this one (commit it!)
+# package-lock.json   ← add this as a comment or just don't add the line at all
