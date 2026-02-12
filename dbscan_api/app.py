@@ -4,6 +4,7 @@ from typing import List, Optional
 import numpy as np
 from sklearn.cluster import DBSCAN
 import os
+from collections import Counter
 
 app = FastAPI()
 
@@ -55,26 +56,39 @@ def cluster(req: ClusterRequest):
     dbscan = DBSCAN(eps=req.eps, min_samples=req.min_samples)
     labels = dbscan.fit_predict(X)
 
-    # Group by cluster labels (only non-noise)
+    # Group items by cluster label
     temp_clusters = {}
     for item, lbl in zip(valid_items, labels):
         if lbl == -1:
             continue
         temp_clusters.setdefault(lbl, []).append(item)
 
-    # Strict: require ≥2 unique sources
+    # === STRONG FILTERING ===
     valid_cluster_ids = set()
+
     for lbl, items in temp_clusters.items():
-        unique_sources = {i.source.strip().lower() for i in items if i.source and i.source.strip()}
-        if len(unique_sources) >= 2:
-            valid_cluster_ids.add(lbl)
+        sources = [i.source.strip().lower() for i in items if i.source and i.source.strip()]
+        unique_sources = set(sources)
+        source_counts = Counter(sources)
+
+        # Rule 1: Must have at least 2 different sources
+        if len(unique_sources) < 2:
+            continue
+
+        # Rule 2: No single source dominates (>50% of cluster)
+        max_source_share = max(source_counts.values()) / len(items)
+        if max_source_share > 0.5:
+            continue
+
+        # If both rules passed → keep this cluster
+        valid_cluster_ids.add(lbl)
 
     # Build final results
     results = []
     for orig_item in req.items:
-        # Find if this item was clustered
         cluster_lbl = -1
         cluster_size = 0
+
         for lbl, items in temp_clusters.items():
             if any(it.id == orig_item.id for it in items):
                 if lbl in valid_cluster_ids:
