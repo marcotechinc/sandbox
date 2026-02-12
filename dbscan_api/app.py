@@ -55,43 +55,37 @@ def cluster(req: ClusterRequest):
     dbscan = DBSCAN(eps=req.eps, min_samples=req.min_samples)
     labels = dbscan.fit_predict(X)
 
-    # Group by cluster labels
+    # Group by cluster labels (only non-noise)
     temp_clusters = {}
     for item, lbl in zip(valid_items, labels):
         if lbl == -1:
             continue
-        if lbl not in temp_clusters:
-            temp_clusters[lbl] = []
-        temp_clusters[lbl].append(item)
+        temp_clusters.setdefault(lbl, []).append(item)
 
-    # Strict diversity: require at least 2 unique sources
-    final_labels = [-1] * len(req.items)  # default noise
-    valid_cluster_sizes = {}
-
+    # Strict: require ≥2 unique sources
+    valid_cluster_ids = set()
     for lbl, items in temp_clusters.items():
-        unique_sources = {i.source for i in items if i.source}
-        
-        if len(unique_sources) < 2:
-            # Discard: single source or no source
-            continue
-        else:
-            valid_cluster_sizes[lbl] = len(items)
-            # Map back labels (approximate via ID match)
-            for orig_idx, orig_item in enumerate(req.items):
-                if orig_item.id == items[0].id:  # first item match
-                    for i, it in enumerate(valid_items):
-                        if it.id == orig_item.id:
-                            final_labels[orig_idx] = lbl
-                            break
+        unique_sources = {i.source.strip().lower() for i in items if i.source and i.source.strip()}
+        if len(unique_sources) >= 2:
+            valid_cluster_ids.add(lbl)
 
-    # Build results
+    # Build final results
     results = []
-    for idx, item in enumerate(req.items):
-        lbl = final_labels[idx]
+    for orig_item in req.items:
+        # Find if this item was clustered
+        cluster_lbl = -1
+        cluster_size = 0
+        for lbl, items in temp_clusters.items():
+            if any(it.id == orig_item.id for it in items):
+                if lbl in valid_cluster_ids:
+                    cluster_lbl = lbl
+                    cluster_size = len(items)
+                break
+
         results.append({
-            "id": item.id,
-            "event_cluster_id": int(lbl) if lbl != -1 else -1,
-            "cluster_size": valid_cluster_sizes.get(lbl, 0)
+            "id": orig_item.id,
+            "event_cluster_id": int(cluster_lbl),
+            "cluster_size": cluster_size
         })
 
     return {
