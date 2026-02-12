@@ -11,7 +11,6 @@ def require_api_key(x_api_key: str = Header(default=None, alias="x-api-key")):
     expected = os.getenv("API_KEY")
     if not expected:
         raise HTTPException(status_code=500, detail="API_KEY not configured")
-    # Clean quotes just in case Railway adds them
     clean_expected = expected.strip('"').strip("'")
     if x_api_key != clean_expected:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
@@ -37,7 +36,7 @@ def cluster(req: ClusterRequest):
     if not req.items:
         return {"dbscan_v": MODEL_VERSION, "results": []}
 
-    # Parse embeddings safely
+    # Safe embedding parsing
     embeddings = []
     valid_items = []
     for item in req.items:
@@ -47,7 +46,7 @@ def cluster(req: ClusterRequest):
                 embeddings.append(emb)
                 valid_items.append(item)
         except:
-            continue  # skip bad embedding
+            continue
 
     if not embeddings:
         return {"dbscan_v": MODEL_VERSION, "results": []}
@@ -56,7 +55,7 @@ def cluster(req: ClusterRequest):
     dbscan = DBSCAN(eps=req.eps, min_samples=req.min_samples)
     labels = dbscan.fit_predict(X)
 
-    # Group valid items by cluster labels
+    # Group by cluster labels
     temp_clusters = {}
     for item, lbl in zip(valid_items, labels):
         if lbl == -1:
@@ -65,26 +64,27 @@ def cluster(req: ClusterRequest):
             temp_clusters[lbl] = []
         temp_clusters[lbl].append(item)
 
-    # Diversity logic (kept as original)
-    final_labels = [-1] * len(req.items)  # default all noise
+    # Strict diversity: require at least 2 unique sources
+    final_labels = [-1] * len(req.items)  # default noise
     valid_cluster_sizes = {}
 
     for lbl, items in temp_clusters.items():
         unique_sources = {i.source for i in items if i.source}
         
-        if len(unique_sources) <= 1:
-            # Discard mono-source clusters
-            pass
+        if len(unique_sources) < 2:
+            # Discard: single source or no source
+            continue
         else:
             valid_cluster_sizes[lbl] = len(items)
-            # Map back to original indices (this is approximate; assumes order preserved)
+            # Map back labels (approximate via ID match)
             for orig_idx, orig_item in enumerate(req.items):
-                if orig_item.id == items[0].id:  # rough match - improve if needed
+                if orig_item.id == items[0].id:  # first item match
                     for i, it in enumerate(valid_items):
                         if it.id == orig_item.id:
                             final_labels[orig_idx] = lbl
                             break
 
+    # Build results
     results = []
     for idx, item in enumerate(req.items):
         lbl = final_labels[idx]
